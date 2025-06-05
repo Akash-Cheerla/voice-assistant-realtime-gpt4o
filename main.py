@@ -2,7 +2,7 @@ import os
 import base64
 import tempfile
 import traceback
-from fastapi import FastAPI, UploadFile, File, Request
+from fastapi import FastAPI, UploadFile, File, Request, WebSocket
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +17,7 @@ from realtime_assistant import (
     end_triggered,
     reset_assistant_state
 )
+from gpt4o_realtime_ws import gpt4o_realtime_audio_stream
 import openai
 
 # Load environment variables
@@ -115,6 +116,30 @@ async def voice_stream(audio: UploadFile = File(...)):
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
+@app.websocket("/ws-gpt4o")
+async def gpt4o_ws(websocket: WebSocket):
+    await websocket.accept()
+
+    async def audio_generator():
+        while True:
+            try:
+                chunk = await websocket.receive_bytes()
+                if chunk == b"[DONE]":
+                    break
+                yield chunk
+            except:
+                break
+
+    try:
+        async for result in gpt4o_realtime_audio_stream(audio_generator()):
+            if result["type"] == "audio":
+                await websocket.send_bytes(result["audio"])
+            elif result["type"] == "text":
+                await websocket.send_json({"text": result["text"]})
+    except Exception as e:
+        print("⚠️ GPT-4o stream failed:", e)
+        await websocket.send_json({"error": str(e)})
+
 @app.get("/form-data")
 async def get_form_data():
     return JSONResponse(form_data)
@@ -124,13 +149,13 @@ async def confirm(request: Request):
     try:
         body = await request.json()
         if body.get("confirmed"):
-            fill_pdf("form_template.pdf", "filled_form.pdf", form_data)
+            edited_data = body.get("form_data", {})
+            fill_pdf("form_template.pdf", "filled_form.pdf", edited_data)
             return JSONResponse({"status": "filled"})
         return JSONResponse({"status": "not confirmed"}, status_code=400)
     except Exception as e:
         print("❌ Error in /confirm:", e)
         return JSONResponse({"error": str(e)}, status_code=500)
-
 
 @app.get("/download")
 async def download_pdf():
