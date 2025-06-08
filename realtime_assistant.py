@@ -2,61 +2,33 @@ import json
 import os
 import random
 from datetime import datetime
-import openai
+from openai import OpenAI
+from dotenv import load_dotenv
 
-openai.api_key = os.getenv("OPENAI_API_KEY")
-form_data = {"SiteCompanyName1": None,
-              "SiteAddress": None, 
-              "SiteCity": None, 
-              "SiteState": None, 
-              "SiteZip": None, 
-              "SiteVoice": None, 
-              "SiteFax": None, 
-              "CorporateCompanyName1": None, 
-              "CorporateAddress": None, 
-              "CorporateCity": None,
-                "CorporateState": None, 
-                "CorporateZip": None, 
-                "CorporateName": None, 
-                "SiteEmail": None, 
-                "CorporateVoice": None, 
-                "CorporateFax": None, 
-                "BusinessWebsite": None, 
-                "CorporateEmail": None,
-                  "CustomerSvcEmail": None,
-                "AppRetrievalMail": None, 
-                "AppRetrievalFax": None, 
-                "AppRetrievalFaxNumber": None, 
-                "MCC-Desc": None
-                }
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# form_data = {
-#     "DBAName": None,
-#     "LegalCorporateName": None,
-#     "BusinessAddress": None,
-#     "BillingAddress": None,
-#     "City": None,
-#     "State": None,
-#     "Zip": None,
-#     "Phone": None,
-#     "Fax": None,
-#     "ContactName": None,
-#     "BusinessEmail": None,
-#     "ContactPhone": None,
-#     "ContactFax": None,
-#     "ContactEmail": None,
-#     "Website": None,
-#     "CustomerServiceEmail": None,
-#     "RetrievalRequestDestination": None,
-#     "MCCSICDescription": None
-# }
+form_data = {
+    "SiteCompanyName1": None, "SiteAddress": None, "SiteCity": None, "SiteState": None, "SiteZip": None,
+    "SiteVoice": None, "SiteFax": None, "CorporateCompanyName1": None, "CorporateAddress": None,
+    "CorporateCity": None, "CorporateState": None, "CorporateZip": None, "CorporateName": None,
+    "SiteEmail": None, "CorporateVoice": None, "CorporateFax": None, "BusinessWebsite": None,
+    "CorporateEmail": None, "CustomerSvcEmail": None, "AppRetrievalMail": None, "AppRetrievalFax": None,
+    "AppRetrievalFaxNumber": None, "MCC-Desc": None
+}
 
 conversation_history = []
 last_assistant_msg = ""
 end_triggered = False
 summary_given = False
 summary_confirmed = False
+pending_confirmation = None
 
+CONFIRMATION_FIELDS = [
+    "SiteCompanyName1", "CorporateCompanyName1", "CorporateName",
+    "SiteEmail", "CorporateEmail", "CustomerSvcEmail",
+    "SiteZip", "CorporateZip"
+]
 
 def get_initial_assistant_message():
     global last_assistant_msg
@@ -76,24 +48,23 @@ def get_initial_assistant_message():
     })
     return initial_message
 
-
 def build_summary_from_form():
     summary_lines = []
     for field, value in form_data.items():
         if value:
-            field_name = field.replace("MCCSICDescription", "MCC SIC Description").replace("DBAName", "DBA Name")
-            field_name = field_name.replace("LegalCorporateName", "Legal Corporate Name").replace("BusinessAddress", "Business Address")
-            field_name = field_name.replace("BillingAddress", "Billing Address").replace("CustomerServiceEmail", "Customer Service Email")
-            field_name = field_name.replace("RetrievalRequestDestination", "Retrieval Request Destination")
-            field_name = ' '.join([w.capitalize() for w in field_name.split()])
+            name = field.replace("MCC-Desc", "MCC SIC Description").replace("CustomerSvcEmail", "Customer Service Email")
+            name = name.replace("SiteCompanyName1", "DBA Name").replace("CorporateCompanyName1", "Legal Corporate Name")
+            name = name.replace("SiteAddress", "Business Address").replace("CorporateAddress", "Billing Address")
+            name = name.replace("SiteVoice", "Phone").replace("SiteFax", "Fax")
+            name = name.replace("SiteEmail", "Business Email")
+            field_name = ' '.join([w.capitalize() for w in name.split()])
             summary_lines.append(f"{field_name}: {value}")
     summary = "\n\nHere is a summary of the information collected:\n\n" + "\n".join(summary_lines)
     summary += "\n\nPlease confirm if all the details are correct. Once confirmed, it may take a few seconds to process."
     return summary
 
-
 async def process_transcribed_text(user_text):
-    global last_assistant_msg, end_triggered, summary_given, summary_confirmed
+    global last_assistant_msg, end_triggered, summary_given, summary_confirmed, pending_confirmation
 
     conversation_history.append({
         "role": "user",
@@ -101,7 +72,16 @@ async def process_transcribed_text(user_text):
         "timestamp": datetime.now().isoformat()
     })
 
-    # Extract structured fields from user response
+    if pending_confirmation:
+        if any(kw in user_text.lower() for kw in ["yes", "correct", "confirmed", "that’s right"]):
+            form_data[pending_confirmation[0]] = pending_confirmation[1]
+            pending_confirmation = None
+        else:
+            clarification = f"Got it — let's try again. What should I note down for {pending_confirmation[0]}?"
+            last_assistant_msg = clarification
+            conversation_history.append({"role": "assistant", "text": clarification, "timestamp": datetime.now().isoformat()})
+            return clarification
+
     extraction_prompt = f"""
 You are helping fill out a Merchant Processing Application. Based on the assistant's last question and the user's reply, extract any relevant fields from this list:
 
@@ -110,55 +90,55 @@ You are helping fill out a Merchant Processing Application. Based on the assista
 Assistant: {last_assistant_msg}
 User: {user_text}
 
-Return only a valid JSON object using those exact field names. If nothing applies, return {{}}.
-"""
+Return only a JSON object using those exact field names. If unsure or likely to be wrong, still include it and indicate the confidence level like this:
+{{ "SiteCompanyName1": {{"value": "Jane’s Burgers", "confidence": 0.6 }} }}
 
+If nothing applies, return {{}}.
+"""
     try:
-        extract_response = openai.ChatCompletion.create(
+        extract_response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You extract structured form fields from user replies."},
+                {"role": "system", "content": "You extract structured form fields with confidence."},
                 {"role": "user", "content": extraction_prompt}
             ],
-            temperature=0.2
+            temperature=0.3
         )
-        extracted_json = extract_response['choices'][0]['message']['content'].strip()
-        parsed = json.loads(extracted_json)
-        for key, value in parsed.items():
-            if key in form_data:
-                form_data[key] = value
+        extracted_json = json.loads(extract_response.choices[0].message.content.strip())
+        for key, val in extracted_json.items():
+            if key in form_data and form_data[key] is None:
+                if isinstance(val, dict) and "value" in val:
+                    if key in CONFIRMATION_FIELDS and val.get("confidence", 1) < 0.9:
+                        guess = val["value"]
+                        prompt = f"You said: {guess}. Did I get that right for {key}?"
+                        pending_confirmation = (key, guess)
+                        last_assistant_msg = prompt
+                        conversation_history.append({"role": "assistant", "text": prompt, "timestamp": datetime.now().isoformat()})
+                        return prompt
+                    form_data[key] = val["value"]
+                else:
+                    form_data[key] = val
     except Exception as e:
         print("⚠️ Field extraction error:", e)
 
     all_fields_filled = all(value is not None for value in form_data.values())
 
-    # Show summary only once
     if all_fields_filled and not summary_given:
         summary_given = True
         summary = build_summary_from_form()
         last_assistant_msg = summary
-        conversation_history.append({
-            "role": "assistant",
-            "text": summary,
-            "timestamp": datetime.now().isoformat()
-        })
+        conversation_history.append({"role": "assistant", "text": summary, "timestamp": datetime.now().isoformat()})
         return summary
 
-    # Check for confirmation after summary
     if summary_given and not summary_confirmed:
         if any(phrase in user_text.lower() for phrase in ["yes", "correct", "confirmed", "looks good", "all good"]):
             summary_confirmed = True
             end_triggered = True
             final_msg = "END OF CONVERSATION"
             last_assistant_msg = final_msg
-            conversation_history.append({
-                "role": "assistant",
-                "text": final_msg,
-                "timestamp": datetime.now().isoformat()
-            })
+            conversation_history.append({"role": "assistant", "text": final_msg, "timestamp": datetime.now().isoformat()})
             return final_msg
 
-    # Otherwise, keep asking remaining questions
     instruction_prompt = """
 You are a conversational AI assistant helping users fill out a Merchant Processing Application.
 
@@ -185,50 +165,40 @@ Be intelligent, friendly, and natural—like Siri or ChatGPT. Guide the user thr
 
 Ask one or two natural, context-aware questions at a time. Provide gentle examples if needed. Avoid robotic phrasing.
 Always prioritize privacy and remind the user not to share sensitive information unless necessary for the form. For sections requiring specific types of data like percentages, business types, or legal requirements, 
-offer examples to aid in understanding.Once all these fields are collected, read back the entire collected information to the user and ask them to confirm it and mention that it may take a few seconds to process all the information .
- After they confirm respond with 'END OF CONVERSATION' and nothing else.
+offer examples to aid in understanding.ONLY If the transcription is unclear or seems misspelled, spell it back to the user and ask for confirmation before moving on. Once all these fields are collected, read back the entire collected information to the user and ask them to confirm it and mention that it may take a few seconds to process all the information.
+After they confirm, respond with 'END OF CONVERSATION' and nothing else.
 
 DO NOT REPEAT THE SUMMARY. DO NOT REPEAT END OF CONVERSATION.
 """
-
     try:
-        messages = [
-            {"role": "system", "content": instruction_prompt}
-        ] + [
-            {"role": msg["role"], "content": msg["text"]}
-            for msg in conversation_history[-12:]
+        messages = [{"role": "system", "content": instruction_prompt}] + [
+            {"role": msg["role"], "content": msg["text"]} for msg in conversation_history[-12:]
         ]
-
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-4",
             messages=messages,
             temperature=0.4
         )
-        assistant_reply = response['choices'][0]['message']['content'].strip()
+        assistant_reply = response.choices[0].message.content.strip()
 
         if summary_given and ("summary" in assistant_reply.lower() or "end of conversation" in assistant_reply.lower()):
-            return ""  # avoid repetition
+            return ""
 
         last_assistant_msg = assistant_reply
-        conversation_history.append({
-            "role": "assistant",
-            "text": assistant_reply,
-            "timestamp": datetime.now().isoformat()
-        })
-
+        conversation_history.append({"role": "assistant", "text": assistant_reply, "timestamp": datetime.now().isoformat()})
         return assistant_reply
 
     except Exception as e:
         print("❌ Assistant generation error:", e)
-        return "Sorry, I had trouble with that. Could you please repeat?"
-
+        return "Sorry, could you please repeat that?"
 
 def reset_assistant_state():
-    global conversation_history, last_assistant_msg, end_triggered, summary_given, summary_confirmed
+    global conversation_history, last_assistant_msg, end_triggered, summary_given, summary_confirmed, pending_confirmation
     conversation_history.clear()
     last_assistant_msg = ""
     end_triggered = False
     summary_given = False
     summary_confirmed = False
+    pending_confirmation = None
     for key in form_data:
         form_data[key] = None

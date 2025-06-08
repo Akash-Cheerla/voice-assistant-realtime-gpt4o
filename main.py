@@ -2,11 +2,12 @@ import os
 import base64
 import tempfile
 import traceback
-from fastapi import FastAPI, UploadFile, File, Request, WebSocket
+from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from openai import OpenAI
 from elevenlabs.client import ElevenLabs
 from fill_pdf_logic import fill_pdf
 from realtime_assistant import (
@@ -17,12 +18,10 @@ from realtime_assistant import (
     end_triggered,
     reset_assistant_state
 )
-from gpt4o_realtime_ws import gpt4o_realtime_audio_stream
-import openai
 
 # Load environment variables
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 app = FastAPI()
@@ -36,7 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static file mounting
+# Serve static assets
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
@@ -80,13 +79,19 @@ async def voice_stream(audio: UploadFile = File(...)):
             temp_audio_path = temp_audio.name
 
         with open(temp_audio_path, "rb") as audio_file:
-            result = openai.Audio.transcribe(
+            result = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file,
-                language="en"
+                language="en",
+                response_format="json",
+                temperature=0.2,
+                prompt=(
+                    "You are transcribing speech for a business form. "
+                    "The user may say business names, postal codes, emails, and names. "
+                    "Avoid guessing – transcribe phonetically when unclear."
+                )
             )
-
-        user_text = result["text"].strip()
+        user_text = result.text.strip()
         print(f"🎤 USER SAID: {user_text}")
 
         assistant_text = await process_transcribed_text(user_text)
@@ -115,30 +120,6 @@ async def voice_stream(audio: UploadFile = File(...)):
         print("❌ Error in /voice-stream:", e)
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
-
-@app.websocket("/ws-gpt4o")
-async def gpt4o_ws(websocket: WebSocket):
-    await websocket.accept()
-
-    async def audio_generator():
-        while True:
-            try:
-                chunk = await websocket.receive_bytes()
-                if chunk == b"[DONE]":
-                    break
-                yield chunk
-            except:
-                break
-
-    try:
-        async for result in gpt4o_realtime_audio_stream(audio_generator()):
-            if result["type"] == "audio":
-                await websocket.send_bytes(result["audio"])
-            elif result["type"] == "text":
-                await websocket.send_json({"text": result["text"]})
-    except Exception as e:
-        print("⚠️ GPT-4o stream failed:", e)
-        await websocket.send_json({"error": str(e)})
 
 @app.get("/form-data")
 async def get_form_data():
