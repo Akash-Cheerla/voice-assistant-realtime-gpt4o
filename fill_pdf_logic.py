@@ -3,7 +3,6 @@ import json
 import io
 import fitz  # PyMuPDF
 
-
 def extract_form_fields(pdf_path):
     """
     Extracts form field positions and metadata using PyMuPDF
@@ -27,11 +26,20 @@ def extract_form_fields(pdf_path):
     doc.close()
     return fields
 
-
 def fill_pdf(input_pdf_path, output_pdf_path, data):
     """
     Overlays extracted field values into corresponding positions on a PDF using text rendering.
     """
+    # Copy MerchantInitials into MerchantInitials1–7
+    if "MerchantInitials" in data and data["MerchantInitials"]:
+        for i in range(1, 8):
+            data[f"MerchantInitials{i}"] = data["MerchantInitials"]
+
+    # Copy MerchantSignatureName into signer1signature1–2
+    if "MerchantSignatureName" in data and data["MerchantSignatureName"]:
+        data["signer1signature1"] = data["MerchantSignatureName"]
+        data["signer1signature2"] = data["MerchantSignatureName"]
+
     # Clean up null values
     for key in list(data.keys()):
         if data[key] == "null" or data[key] is None:
@@ -50,9 +58,9 @@ def fill_pdf(input_pdf_path, output_pdf_path, data):
             x0, y0, x1, y1 = field_info['rect']
             page = doc[page_num]
 
-            font_size = min(11, (y1 - y0) - 2)  # Auto-scale font
-            x_pos = x0 + 2                     # Small left margin
-            y_pos = y0 + (y1 - y0) * 0.75      # Slightly below center
+            font_size = min(11, (y1 - y0) - 2)
+            x_pos = x0 + 2
+            y_pos = y0 + (y1 - y0) * 0.75
 
             print(f"Field: {field_name}, Value: {value}")
             page.insert_text((x_pos, y_pos), str(value), fontsize=font_size, fontname="helv")
@@ -62,15 +70,9 @@ def fill_pdf(input_pdf_path, output_pdf_path, data):
     doc.close()
     print(f"PDF successfully filled and saved to {output_pdf_path}")
 
-
 def load_json_data(json_file_path):
-    """
-    Loads field values from a JSON file.
-    """
     with open(json_file_path, 'r') as file:
-        field_values = json.load(file)
-    return field_values
-
+        return json.load(file)
 
 if __name__ == "__main__":
     if len(sys.argv) == 4:
@@ -82,10 +84,3 @@ if __name__ == "__main__":
         fill_pdf(input_pdf_path, output_pdf_path, field_values)
     else:
         print("Usage: python pdf_text_overlay.py <input_pdf_path> <json_file_path> <output_pdf_path>")
-
-        # Uncomment for quick testing:
-        # input_pdf_path = "form.pdf"
-        # json_file_path = "data.json"
-        # output_pdf_path = "output.pdf"
-        # field_values = load_json_data(json_file_path)
-        # fill_pdf(input_pdf_path, output_pdf_path, field_values)

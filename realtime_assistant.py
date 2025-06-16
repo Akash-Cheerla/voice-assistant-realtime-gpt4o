@@ -14,7 +14,11 @@ form_data = {
     "CorporateCity": None, "CorporateState": None, "CorporateZip": None, "CorporateName": None,
     "SiteEmail": None, "CorporateVoice": None, "CorporateFax": None, "BusinessWebsite": None,
     "CorporateEmail": None, "CustomerSvcEmail": None, "AppRetrievalMail": None, "AppRetrievalFax": None,
-    "AppRetrievalFaxNumber": None, "MCC-Desc": None
+    "AppRetrievalFaxNumber": None, "MCC-Desc": None,
+
+    # Simplified: use one initials and one signature field
+    "MerchantInitials": None,
+    "MerchantSignatureName": None
 }
 
 conversation_history = []
@@ -121,14 +125,15 @@ If nothing applies, return {{}}.
     except Exception as e:
         print("⚠️ Field extraction error:", e)
 
-    all_fields_filled = all(value is not None for value in form_data.values())
+    core_fields = [k for k in form_data if k not in ("MerchantInitials", "MerchantSignatureName")]
+    all_core_fields_filled = all(form_data[k] is not None for k in core_fields)
 
-    if all_fields_filled and not summary_given:
+    if all_core_fields_filled and not summary_given:
         summary_given = True
-        summary = build_summary_from_form()
-        last_assistant_msg = summary
-        conversation_history.append({"role": "assistant", "text": summary, "timestamp": datetime.now().isoformat()})
-        return summary
+        prompt = "Thanks! One last thing before we wrap up — could you give me your initials and your full name for the signature?"
+        last_assistant_msg = prompt
+        conversation_history.append({"role": "assistant", "text": prompt, "timestamp": datetime.now().isoformat()})
+        return prompt
 
     if summary_given and not summary_confirmed:
         if any(phrase in user_text.lower() for phrase in ["yes", "correct", "confirmed", "looks good", "all good"]):
@@ -166,7 +171,7 @@ Be intelligent, friendly, and natural—like Siri or ChatGPT. Guide the user thr
 Ask one or two natural, context-aware questions at a time. Provide gentle examples if needed. Avoid robotic phrasing.
 Always prioritize privacy and remind the user not to share sensitive information unless necessary for the form. For sections requiring specific types of data like percentages, business types, or legal requirements, 
 offer examples to aid in understanding.ONLY If the transcription is unclear or seems misspelled, spell it back to the user and ask for confirmation before moving on. Once all these fields are collected, read back the entire collected information to the user and ask them to confirm it and mention that it may take a few seconds to process all the information.
-After they confirm, respond with 'END OF CONVERSATION' and nothing else.
+After they confirm, ask for initials and signature if missing. Then respond with 'END OF CONVERSATION' and nothing else.
 
 DO NOT REPEAT THE SUMMARY. DO NOT REPEAT END OF CONVERSATION.
 """
