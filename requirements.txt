@@ -12,3 +12,4 @@ python-dotenv
 ffmpeg-python
 pydub
 websockets
+Pillow
