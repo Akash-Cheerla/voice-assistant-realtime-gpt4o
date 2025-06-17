@@ -180,7 +180,7 @@ DO NOT REPEAT THE SUMMARY. DO NOT REPEAT END OF CONVERSATION.
             {"role": msg["role"], "content": msg["text"]} for msg in conversation_history[-12:]
         ]
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=messages,
             temperature=0.4
         )

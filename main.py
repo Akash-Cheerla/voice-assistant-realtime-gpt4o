@@ -35,7 +35,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve static assets
+# Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 @app.get("/")
@@ -85,11 +85,9 @@ async def voice_stream(audio: UploadFile = File(...)):
                 language="en",
                 response_format="json",
                 temperature=0.2,
-                prompt=(
-                    "You are transcribing speech for a business form. "
-                    "The user may say business names, postal codes, emails, and names. "
-                    "Avoid guessing – transcribe phonetically when unclear."
-                )
+                prompt="You are transcribing speech for a business form. "
+                       "The user may say business names, postal codes, emails, and names. "
+                       "Avoid guessing – transcribe phonetically when unclear."
             )
         user_text = result.text.strip()
         print(f"🎤 USER SAID: {user_text}")
@@ -121,9 +119,20 @@ async def voice_stream(audio: UploadFile = File(...)):
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
-@app.get("/form-data")
-async def get_form_data():
-    return JSONResponse(form_data)
+@app.post("/upload-signature")
+async def upload_signature(request: Request):
+    try:
+        body = await request.json()
+        image_data = body.get("signature_image", "")
+        if image_data.startswith("data:image/png;base64,"):
+            image_data = image_data.split(",", 1)[1]
+        with open("saved_signature.png", "wb") as f:
+            f.write(base64.b64decode(image_data))
+        print("✅ Signature image saved as saved_signature.png")
+        return JSONResponse({"status": "signature saved"})
+    except Exception as e:
+        print("❌ Signature upload error:", e)
+        return JSONResponse({"error": "Failed to save signature"}, status_code=500)
 
 @app.post("/confirm")
 async def confirm(request: Request):
