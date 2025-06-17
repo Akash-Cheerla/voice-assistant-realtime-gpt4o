@@ -170,8 +170,9 @@ Be intelligent, friendly, and natural—like Siri or ChatGPT. Guide the user thr
 
 Ask one or two natural, context-aware questions at a time. Provide gentle examples if needed. Avoid robotic phrasing.
 Always prioritize privacy and remind the user not to share sensitive information unless necessary for the form. For sections requiring specific types of data like percentages, business types, or legal requirements, 
-offer examples to aid in understanding.ONLY If the transcription is unclear or seems misspelled, spell it back to the user and ask for confirmation before moving on. Once all these fields are collected, read back the entire collected information to the user and ask them to confirm it and mention that it may take a few seconds to process all the information.
-After they confirm, ask for initials and signature if missing. Then respond with 'END OF CONVERSATION' and nothing else.
+offer examples to aid in understanding.ONLY If the transcription is unclear or seems misspelled, spell it back to the user and ask for confirmation before moving on.NEVER include external links, promotional messages, or teaching tips.
+Once all these fields are collected, read back the entire collected information to the user and ask them to confirm it and mention that it may take a few seconds to process all the information.
+After they confirm, ask for initials and/or draw signature after conversation if missing. Then respond with 'END OF CONVERSATION' and nothing else.
 
 DO NOT REPEAT THE SUMMARY. DO NOT REPEAT END OF CONVERSATION.
 """
@@ -180,7 +181,7 @@ DO NOT REPEAT THE SUMMARY. DO NOT REPEAT END OF CONVERSATION.
             {"role": msg["role"], "content": msg["text"]} for msg in conversation_history[-12:]
         ]
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4",
             messages=messages,
             temperature=0.4
         )
