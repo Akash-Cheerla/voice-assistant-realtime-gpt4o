@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>🎙️ FRI Voice Assistant</title>
+  <title>🎹 FRI Voice Assistant</title>
   <style>
     body {
       margin: 0;
@@ -101,6 +101,11 @@
       border-radius: 4px;
       color: #fff;
     }
+    canvas {
+      border: 1px solid #555;
+      margin-top: 10px;
+      background: white;
+    }
     button {
       padding: 10px 18px;
       background-color: #00b894;
@@ -129,7 +134,11 @@
     <div id="formSection">
       <h3>📝 Confirm & Edit Extracted Data</h3>
       <form id="formEditor"></form>
-      <button onclick="confirmAndGenerate()">Confirm & Generate PDF</button>
+      <label for="signatureCanvas">✍️ Draw Signature:</label>
+      <canvas id="signatureCanvas" width="300" height="100"></canvas>
+      <button type="button" onclick="saveSignature()">🖋️ Save Signature</button>
+      <br/>
+      <button onclick="confirmAndGenerate()">✅ Confirm & Generate PDF</button>
       <a id="downloadLink" href="/download" download style="display:none; margin-left: 10px;">📄 Download PDF</a>
       <button id="resetBtn" onclick="resetConversation()" style="display:none; background:#555; margin-left:10px;">🔁 Start Over</button>
     </div>
@@ -241,8 +250,7 @@
       formEditor.innerHTML = "";
       for (const key in data) {
         const label = document.createElement("label");
-        label.textContent = key === "MerchantInitials" ? "Initials" :
-                            key === "MerchantSignatureName" ? "Signature" : key;
+        label.textContent = key;
         const input = document.createElement("input");
         input.name = key;
         input.value = data[key] || "";
@@ -290,6 +298,36 @@
       };
       document.getElementById("container").appendChild(startBtn);
     };
+
+    function saveSignature() {
+      const canvas = document.getElementById("signatureCanvas");
+      const dataURL = canvas.toDataURL("image/png");
+      fetch("/upload-signature", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ signature_image: dataURL })
+      }).then(res => {
+        if (res.ok) alert("✅ Signature saved!");
+        else alert("❌ Failed to save signature.");
+      });
+    }
+
+    const canvas = document.getElementById("signatureCanvas");
+    const ctx = canvas.getContext("2d");
+    let drawing = false;
+    canvas.addEventListener("mousedown", () => { drawing = true; ctx.beginPath(); });
+    canvas.addEventListener("mouseup", () => drawing = false);
+    canvas.addEventListener("mouseout", () => drawing = false);
+    canvas.addEventListener("mousemove", draw);
+    function draw(e) {
+      if (!drawing) return;
+      ctx.lineWidth = 2;
+      ctx.lineCap = "round";
+      ctx.strokeStyle = "#000";
+      const rect = canvas.getBoundingClientRect();
+      ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+      ctx.stroke();
+    }
   </script>
 </body>
 </html>
