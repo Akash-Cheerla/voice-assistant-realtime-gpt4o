@@ -83,13 +83,13 @@ async def voice_stream(audio: UploadFile = File(...)):
                 model="whisper-1",
                 file=audio_file,
                 language="en",
-                response_format="json",
+                response_format="text",
                 temperature=0.2,
                 prompt="You are transcribing speech for a business form. "
                        "The user may say business names, postal codes, emails, and names. "
                        "Avoid guessing – transcribe phonetically when unclear."
             )
-        user_text = result.text.strip()
+        user_text = result.strip()
         print(f"🎤 USER SAID: {user_text}")
 
         assistant_text = await process_transcribed_text(user_text)
